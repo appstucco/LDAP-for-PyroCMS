@@ -1,0 +1,22 @@
+Users core is built and maintained by the PyroCMS project community. Everyone is
+encouraged to submit issues and changes (patches) to improve PyroCMS, and to
+contribute in other ways -- see https://github.com/pyrocms/pyrocms/contributors to find out how.
+
+Core maintainers
+------------------
+
+https://github.com/pyrocms/pyrocms/contributors
+
+
+Component maintainers
+---------------------
+
+The LDAP module maintainers oversee the development of the LDAP user
+subsystems:
+
+User system
+- Ben Edmunds 'benedmunds' https://github.com/benedmunds
+
+LDAP system
+- Dan Lopez 'danlopez00' https://github.com/danlopez00
+- Ben Edmunds 'benedmunds' https://github.com/benedmunds

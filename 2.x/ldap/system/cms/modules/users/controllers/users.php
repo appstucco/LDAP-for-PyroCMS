@@ -1,0 +1,1085 @@
+<?php defined('BASEPATH') OR exit('No direct script access allowed');
+
+/**
+ * User controller for the users module (frontend)
+ *
+ * @author 		Phil Sturgeon - PyroCMS Dev Team
+ * @package 	PyroCMS
+ * @subpackage 	Users module
+ * @category	Modules
+ */
+class Users extends Public_Controller
+{
+	/**
+	 * Constructor method
+	 *
+	 * @return void
+	 */
+	function __construct()
+	{
+		parent::__construct();
+
+		// Load the required classes
+		$this->load->model('user_m');
+		$this->load->helper('user');
+		$this->lang->load('user');
+		$this->load->library('form_validation');
+		
+		/**
+		 * START - LDAP CUSTOMIZATION
+		 */
+		//$this->load->model('users_m'); //possible deprecate?
+		$this->load->library('ldap');
+		$this->load->model('ldap/ldap_m');
+		$this->load->config('users/ldap_config');
+		
+		/**
+		 * END - LDAP CUSTOMIZATION
+		 */
+	}
+
+	/**
+	 * Show the current user's profile
+	 *
+	 * @access public
+	 * @return void
+	 */
+	public function index()
+	{
+		if (isset($this->current_user->id))
+		{
+			$this->view($this->current_user->id);
+		}
+		else
+		{
+			redirect('users/login/users');
+		}
+	}
+
+	/**
+	 * View a user profile based on the ID
+	 *
+	 * @param	mixed $id The Username or ID of the user
+	 * @return	void
+	 */
+	public function view($id = NULL)
+	{
+		$user = ($this->current_user && $id == $this->current_user->id) ? $this->current_user : $this->ion_auth->get_user($id);
+		
+		// No user? Show a 404 error. Easy way for now, instead should show a custom error message
+		$user or show_404();
+		
+		// Take care of the {} braces in the content
+		foreach ($user as $field => $value)
+		{
+			$user->{$field} = escape_tags($value);
+		}
+
+		$this->template->build('profile/view', array(
+			'_user' => $user,
+		));
+	}
+
+	/**
+	 * Let's login, shall we?
+	 *
+	 * @return void
+	 */
+	public function login()
+	{
+		// Check post and session for the redirect place
+		$redirect_to = $this->input->post('redirect_to') ? $this->input->post('redirect_to') : $this->session->userdata('redirect_to');
+
+		// Any idea where we are heading after login?
+		if ( ! $_POST AND $args = func_get_args())
+		{
+			$this->session->set_userdata('redirect_to', $redirect_to = implode('/', $args));
+		}
+
+		// Get the user data
+		$user = (object) array(
+			'email'		=> $this->input->post('email'),
+			'password'	=> $this->input->post('password')
+		);
+
+		$validation = array(
+			array(
+				'field' => 'email',
+				'label' => lang('user_email_label'),
+				'rules' => 'required|trim|callback__check_login'
+			),
+			array(
+				'field' => 'password',
+				'label' => lang('user_password_label'),
+				'rules' => 'required|min_length[6]|max_length[20]'
+			),
+		);
+
+		/**
+		 * LDAP Module
+		 * Start Integration
+		 * 
+		 * @TODO Extend user module instead of hacking core
+		 */
+		
+		//check if LDAP is enabled
+		$ldapEnabled = $this->config->item('enabled', 'ldap');
+		
+		//using LDAP to auth - enabled
+		if($ldapEnabled == TRUE){
+			//Get LDAP Settings
+			$ldap = $this->ldap_m->get_settings();
+			
+			//Check if we are to use ActiveDirectory or basic LDAP
+			if($ldap[0]->use_AD == '1'){
+				$useAD = true;
+			}
+			else{
+				$useAD = false;
+			}
+			
+			//print_r($ldap);
+			
+			$ldapConfig = array(
+						"uid" => $ldap[0]->uid,
+						"pass" => $ldap[0]->pass,
+						"host" => $ldap[0]->host,
+						"basehost" => $ldap[0]->basehost,
+						"ip" => $ldap[0]->ip,
+						"port" => $ldap[0]->port,
+						"ou" => $ldap[0]->ou,
+						"dc" => $ldap[0]->dc,
+						"use_AD" => $useAD
+						);
+			
+			$conn = $this->ldap->ldapAuthenticate($ldapConfig);
+			
+			//LDAP conn success!
+			if($conn){
+			
+				$basedn = $ldap[0]->ou.",".$ldap[0]->dc;
+				
+				if($useAD == true){
+					$filter = "(|(mail=".$user->email."*))"; //return based on email
+					$attr = array("samaccountname","displayname", "mail", "mobile", "homephone", "telephonenumber", "streetaddress", "postalcode", "physicaldeliveryofficename", "l");
+					
+				}
+				else {
+					$filter = "(|(mail=".$user->email."*))"; //return based on email
+					$attr = array("givenname","displayname", "mail", "mobile", "homephone", "telephonenumber", "streetaddress", "postalcode", "physicaldeliveryofficename", "l");
+				}
+								
+				//$filter = "(|(mail=".$user->email."*))"; //return based on email				
+				//$attr = array("samaccountname","displayname", "mail", "mobile", "homephone", "telephonenumber", "streetaddress", "postalcode", "physicaldeliveryofficename", "l");
+				
+				$search = $this->ldap->ldapSearch($conn,$basedn,$filter,$attr);
+				$data = $this->ldap->ldapGetEntries($conn, $search);
+				
+				//user found
+				if($data['count'] == 1){
+					//echo "<pre>";
+					//echo "user found: ";
+					
+					if($useAD == true){
+						$userLDAP = $data[0]['samaccountname'][0];
+					}
+					else{
+						$userLDAP = $data[0]['givenname'][0];
+					}
+					
+					$this->ldap->ldapUnbind($conn);
+					
+					$ldapConfigUser = array(
+											"uid" => $userLDAP,
+											"pass" => $user->password,
+											"host" => $ldap[0]->host,
+											"basehost" => $ldap[0]->basehost,
+											"ip" => $ldap[0]->ip,
+											"port" => $ldap[0]->port,
+											"ou" => $ldap[0]->ou,
+											"dc" => $ldap[0]->dc,
+											"use_AD" => $useAD
+											);
+												
+					$connUser = $this->ldap->ldapAuthenticate($ldapConfigUser);
+					if($connUser){
+							
+						$basednUser = $ldap[0]->ou.",".$ldap[0]->dc;
+						$filterUser = "(|(mail=".$user->email."*))"; //return based on email
+						
+						if($useAD == true){
+							$attrUser = array("samaccountname","displayname", "mail", "mobile", "homephone", "telephonenumber", "streetaddress", "postalcode", "physicaldeliveryofficename", "l", "unicodePwd");
+						}
+						else {
+							$attrUser = array("givenname","displayname", "mail", "mobile", "homephone", "telephonenumber", "streetaddress", "postalcode", "physicaldeliveryofficename", "l", "unicodePwd");
+						}
+						
+						$searchUser = $this->ldap->ldapSearch($connUser,$basednUser,$filterUser,$attrUser);
+						$dataUser = $this->ldap->ldapGetEntries($connUser, $searchUser);
+						//print_r($dataUser);
+						
+						//echo "select user from users table.<br>";
+						$fndUser = $this->user_m->get(array("email"=>$user->email));
+						
+						if(isset($fndUser->id)){
+							//echo "::user found in db<br>";
+							//echo ":::exists login<br>";
+							//print_r($fndUser);
+							$identity = $user->email;
+							$password = $user->password;
+							$remember = TRUE; // remember the user
+							
+							//store password from ldap + salt, in case user needs to login and LDAP connectivity fails
+							$ldapPass = sha1($user->password.$fndUser->salt);
+							$this->user_m->update_password_from_ldap($fndUser->id, $ldapPass);
+							
+							$this->ion_auth->login($identity, $password, $remember);
+							
+							//echo "update last login<br>";
+							$this->user_m->update_last_login($fndUser->id);
+
+							// Set the validation rules
+							$this->form_validation->set_rules($validation);
+						
+							// If the validation worked, or the user is already logged in
+							if ($this->form_validation->run() or $this->current_user)
+							{
+								$this->session->set_flashdata('success', lang('user_logged_in'));
+						
+								// Kill the session
+								$this->session->unset_userdata('redirect_to');
+						
+								// Deprecated.
+								$this->hooks->_call_hook('post_user_login');
+						
+								// trigger a post login event for third party devs
+								Events::trigger('post_user_login');
+						
+								redirect($redirect_to ? $redirect_to : '');
+							}
+						}//end found user
+						else{
+							//echo "user does not exist, create entry in db, then do login<br>";
+							if($useAD == true){
+								$username = $dataUser[0]['samaccountname'][0];
+							}
+							else{
+								$username = $dataUser[0]['givenname'][0];
+							}
+							
+							$password = $user->password;
+							$email    = $user->email;
+							
+							$display_name = $dataUser[0]['displayname'][0];
+							
+							$fullname_split = explode(" ", $display_name);
+		
+							if(isset($fullname_split[0])){
+								$first_name = $fullname_split[0];
+							}
+							else{
+								$first_name = "";
+							}
+											
+							if(isset($fullname_split[1])){
+								$last_name = $fullname_split[1];
+								if(isset($fullname_split[2])){
+									$last_name = $last_name." ".$fullname_split[2];
+								}
+							}
+							else{
+								$last_name = "";
+							}
+								
+							$additional_data = array(
+													'display_name' => $display_name,
+													'first_name' => $first_name,
+													'last_name' => $last_name,
+													);
+							$group_name = 'user';
+							
+							$this->ion_auth->register($username, $password, $email, $additional_data, $group_name);
+							
+							$fndUser = $this->user_m->get(array("email"=>$user->email));
+							
+							$this->user_m->activate_manual($fndUser->id);
+							
+							$remember = TRUE; // remember the user
+							$this->ion_auth->login($email, $password, $remember);
+							
+							// Set the validation rules
+							$this->form_validation->set_rules($validation);
+				
+							// If the validation worked, or the user is already logged in
+							if ($this->form_validation->run() or $this->current_user)
+							{
+								$this->session->set_flashdata('success', lang('user_logged_in'));
+						
+								// Kill the session
+								$this->session->unset_userdata('redirect_to');
+						
+								// Deprecated.
+								$this->hooks->_call_hook('post_user_login');
+						
+								// trigger a post login event for third party devs
+								Events::trigger('post_user_login');
+						
+								redirect($redirect_to ? $redirect_to : '');
+							}
+						}//end user not found						
+																								
+					}//
+					else{
+						// Set the validation rules
+						$this->form_validation->set_rules($validation);
+					
+						// If the validation worked, or the user is already logged in
+						if ($this->form_validation->run() or $this->current_user)
+						{
+							$this->session->set_flashdata('success', lang('user_logged_in'));
+					
+							// Kill the session
+							$this->session->unset_userdata('redirect_to');
+					
+							// Deprecated.
+							$this->hooks->_call_hook('post_user_login');
+					
+							// trigger a post login event for third party devs
+							Events::trigger('post_user_login');
+					
+							redirect($redirect_to ? $redirect_to : '');
+						}						
+					}//end else 								
+																	
+				}
+				//user not found
+				else {
+					// Set the validation rules
+					$this->form_validation->set_rules($validation);
+				
+					// If the validation worked, or the user is already logged in
+					if ($this->form_validation->run() or $this->current_user)
+					{
+						$this->session->set_flashdata('success', lang('user_logged_in'));
+				
+						// Kill the session
+						$this->session->unset_userdata('redirect_to');
+				
+						// Deprecated.
+						$this->hooks->_call_hook('post_user_login');
+				
+						// trigger a post login event for third party devs
+						Events::trigger('post_user_login');
+				
+						redirect($redirect_to ? $redirect_to : '');
+					}					
+				}
+					
+			}
+			//LDAP conn failed, use default
+			else{
+				// Set the validation rules
+				$this->form_validation->set_rules($validation);
+			
+				// If the validation worked, or the user is already logged in
+				if ($this->form_validation->run() or $this->current_user)
+				{
+					$this->session->set_flashdata('success', lang('user_logged_in'));
+			
+					// Kill the session
+					$this->session->unset_userdata('redirect_to');
+			
+					// Deprecated.
+					$this->hooks->_call_hook('post_user_login');
+			
+					// trigger a post login event for third party devs
+					Events::trigger('post_user_login');
+			
+					redirect($redirect_to ? $redirect_to : '');
+				}				
+			}
+							
+			//die('-------');
+		}
+
+		//not using LDAP to auth - not enabled
+		else {
+			// Set the validation rules
+			$this->form_validation->set_rules($validation);
+		
+			// If the validation worked, or the user is already logged in
+			if ($this->form_validation->run() or $this->current_user)
+			{
+				$this->session->set_flashdata('success', lang('user_logged_in'));
+		
+				// Kill the session
+				$this->session->unset_userdata('redirect_to');
+		
+				// Deprecated.
+				$this->hooks->_call_hook('post_user_login');
+		
+				// trigger a post login event for third party devs
+				Events::trigger('post_user_login');
+		
+				redirect($redirect_to ? $redirect_to : '');
+			}
+		
+		}
+
+		$this->template->build('login', array(
+				'_user' => $user,
+				'redirect_to' => $redirect_to,
+			));	 
+
+
+		/*
+		// Set the validation rules
+		$this->form_validation->set_rules($validation);
+
+		// If the validation worked, or the user is already logged in
+		if ($this->form_validation->run() or $this->current_user)
+		{
+			$this->session->set_flashdata('success', lang('user_logged_in'));
+
+			// Kill the session
+			$this->session->unset_userdata('redirect_to');
+
+			// Deprecated.
+			$this->hooks->_call_hook('post_user_login');
+
+			// trigger a post login event for third party devs
+			Events::trigger('post_user_login');
+
+			redirect($redirect_to ? $redirect_to : '');
+		}
+
+		$this->template->build('login', array(
+			'_user' => $user,
+			'redirect_to' => $redirect_to,
+		));
+		*/
+	}
+
+	/**
+	 * Method to log the user out of the system
+	 *
+	 * @return void
+	 */
+	public function logout()
+	{
+		// allow third party devs to do things right before the user leaves
+		Events::trigger('pre_user_logout');
+
+		$this->ion_auth->logout();
+		$this->session->set_flashdata('success', lang('user_logged_out'));
+		redirect('');
+	}
+
+	/**
+	 * Method to register a new user
+	 *
+	 * @return void
+	 */
+	public function register()
+	{
+		// Validation rules
+		$validation = array(
+			array(
+				'field' => 'first_name',
+				'label' => lang('user_first_name'),
+				'rules' => 'required'
+			),
+			array(
+				'field' => 'last_name',
+				'label' => lang('user_last_name'),
+				'rules' => (Settings::get('require_lastname') ? 'required' : '')
+			),
+			array(
+				'field' => 'password',
+				'label' => lang('user_password'),
+				'rules' => 'required|min_length[6]|max_length[20]'
+			),
+			array(
+				'field' => 'email',
+				'label' => lang('user_email'),
+				'rules' => 'required|valid_email|callback__email_check',
+			),
+			array(
+				'field' => 'username',
+				'label' => lang('user_username'),
+				'rules' => Settings::get('auto_username') ? '' : 'required|alpha_dot_dash|min_length[3]|max_length[20]|callback__username_check',
+			),
+		);
+
+		// Set the validation rules
+		$this->form_validation->set_rules($validation);
+	
+		// Are they TRYing to submit?
+		if ($_POST)
+		{
+			if ($this->form_validation->run())
+			{	
+				// maybe it's a bot?
+				if ($this->input->post('d0ntf1llth1s1n') !== ' ')
+				{
+					$this->session->set_flashdata('error', lang('user_register_error'));
+					redirect(current_url());
+				}
+
+				$email				= $this->input->post('email');
+				$password			= $this->input->post('password');	
+			
+				// Let's do some crazy shit and make a username!
+				if (Settings::get('auto_username'))
+				{
+					$i = 1;
+				
+					do
+					{
+						$username = url_title($this->input->post('first_name').'.'.$this->input->post('last_name'), '-', true);
+					
+						// Add 2, 3, 4 etc to the end
+						$i > 1 and $username .= $i;
+					
+						++$i;
+					}
+				
+					// Keep trying until it is unique
+					while ($this->db->where('username', $username)->count_all_results('users') > 0);
+				}
+			
+				// Let's just use post (which we required earlier)
+				else
+				{
+					$username = $this->input->post('username');
+				}
+
+				$id = $this->ion_auth->register($username, $password, $email, array(
+					'first_name'		=> $this->input->post('first_name'),
+					'last_name'			=> $this->input->post('last_name'),
+					'display_name'		=> $username,
+				));
+
+				// Try to create the user
+				if ($id > 0)
+				{
+					// Convert the array to an object
+					$user					= new stdClass();
+					$user->first_name 		= $this->input->post('first_name');
+					$user->last_name		= $this->input->post('last_name');
+					$user->username			= $username;
+					$user->display_name		= $username;
+					$user->email			= $email;
+					$user->password 		= $password;
+				
+					// trigger an event for third party devs
+					Events::trigger('post_user_register', $id);
+
+					/* send the internal registered email if applicable */
+					if (Settings::get('registered_email'))
+					{
+						$this->load->library('user_agent');
+
+						Events::trigger('email', array(
+							'name' => $user->first_name.' '.$user->last_name,
+							'sender_ip' => $this->input->ip_address(),
+							'sender_agent' => $this->agent->browser() . ' ' . $this->agent->version(),
+							'sender_os' => $this->agent->platform(),
+							'slug' => 'registered',
+							'email' => Settings::get('contact_email'),
+						), 'array');
+					}
+
+					/* show the you need to activate page while they wait for there email */
+					if (Settings::get('activation_email'))
+					{
+						$this->session->set_flashdata('notice', $this->ion_auth->messages());
+						redirect('users/activate');
+					}
+				
+					elseif (Settings::get('registered_email'))
+					/* show the admin needs to activate you email */
+					{
+						$this->session->set_flashdata('notice', lang('user_activation_by_admin_notice'));
+						redirect('users/register'); /* bump it to show the flash data */
+					}
+				}
+			
+				// Can't create the user, show why
+				else
+				{
+					$this->template->error_string = $this->ion_auth->errors();
+				}
+			}
+			else
+			{
+				// Return the validation error
+				$this->template->error_string = $this->form_validation->error_string();
+			}
+		}
+		
+		// Is there a user hash?
+		else if (($user_hash = $this->session->userdata('user_hash')))
+		{
+			// Convert the array to an object
+			$user					= new stdClass();
+			$user->first_name 		= $user_hash['first_name'];
+			$user->last_name		= $user_hash['last_name'];
+			$user->username			= $user_hash['nickname'];
+			$user->email			= isset($user_hash['email']) ? $user_hash['email'] : '';
+		}
+		
+		// Repopulate the form
+		foreach ($validation as $rule)
+		{
+			$user->{$rule['field']} = set_value($rule['field']);
+		}
+		
+		$this->template
+			->title(lang('user_register_title'))
+			->set('_user', $user)
+			->build('register');
+	}
+
+	/**
+	 * Activate a user
+	 *
+	 * @param int $id The ID of the user
+	 * @param str $code The activation code
+	 * @return void
+	 */
+	public function activate($id = 0, $code = NULL)
+	{
+		// Get info from email
+		if ($this->input->post('email'))
+		{
+			$this->data->activate_user = $this->ion_auth->get_user_by_email($this->input->post('email'));
+			$id = $this->data->activate_user->id;
+		}
+
+		$code = ($this->input->post('activation_code')) ? $this->input->post('activation_code') : $code;
+
+		// If user has supplied both bits of information
+		if ($id AND $code)
+		{
+			// Try to activate this user
+			if ($this->ion_auth->activate($id, $code))
+			{
+				$this->session->set_flashdata('activated_email', $this->ion_auth->messages());
+
+				// Deprecated
+				$this->hooks->_call_hook('post_user_activation');
+
+				// trigger an event for third party devs
+				Events::trigger('post_user_activation', $id);
+
+				redirect('users/activated');
+			}
+			else
+			{
+				$this->data->error_string = $this->ion_auth->errors();
+			}
+		}
+
+		$this->template->title(lang('user_activate_account_title'));
+		$this->template->set_breadcrumb(lang('user_activate_label'), 'users/activate');
+		$this->template->build('activate', $this->data);
+	}
+
+	/**
+	 * Activated page
+	 *
+	 * @return void
+	 */
+	public function activated()
+	{
+		//if they are logged in redirect them to the home page
+		if ($this->current_user)
+		{
+			redirect(base_url());
+		}
+
+		$this->data->activated_email = ($email = $this->session->flashdata('activated_email')) ? $email : '';
+
+		$this->template->title(lang('user_activated_account_title'));
+		$this->template->build('activated', $this->data);
+	}
+
+	/**
+	 * Reset a user's password
+	 *
+	 * @return void
+	 */
+	public function reset_pass($code = FALSE)
+	{
+		//if user is logged in they don't need to be here. and should use profile options
+		if ($this->current_user)
+		{
+			$this->session->set_flashdata('error', lang('user_already_logged_in'));
+			redirect('my-profile');
+		}
+
+		if ($this->input->post('btnSubmit'))
+		{
+			$uname = $this->input->post('user_name');
+			$email = $this->input->post('email');
+
+			if ( ! ($user_meta = $this->ion_auth->get_user_by_email($email)))
+			{
+				$user_meta = $this->ion_auth->get_user_by_username($uname);
+			}
+
+			// have we found a user?
+			if ($user_meta)
+			{
+				$new_password = $this->ion_auth->forgotten_password($user_meta->email);
+
+				if ($new_password)
+				{
+					//set success message
+					$this->data->success_string = lang('forgot_password_successful');
+				}
+				else
+				{
+					// Set an error message explaining the reset failed
+					$this->data->error_string = $this->ion_auth->errors();
+				}
+			}
+			else
+			{
+				//wrong username / email combination
+				$this->data->error_string = lang('user_forgot_incorrect');
+			}
+		}
+
+		// code is supplied in url so lets try to reset the password
+		if ($code)
+		{
+			// verify reset_code against code stored in db
+			$reset = $this->ion_auth->forgotten_password_complete($code);
+
+			// did the password reset?
+			if ($reset)
+			{
+				redirect('users/reset_complete');
+			}
+			else
+			{
+				// nope, set error message
+				$this->data->error_string = $this->ion_auth->errors();
+			}
+		}
+
+		$this->template->title(lang('user_reset_password_title'));
+		$this->template->build('reset_pass', $this->data);
+	}
+
+	/**
+	 * Password reset is finished
+	 *
+	 * @param string $code Optional parameter the reset_password_code
+	 * @return void
+	 */
+	public function reset_complete()
+	{
+		//if user is logged in they don't need to be here. and should use profile options
+		if ($this->current_user)
+		{
+			$this->session->set_flashdata('error', lang('user_already_logged_in'));
+			redirect('my-profile');
+		}
+
+		$this->template
+			->title(lang('user_password_reset_title'))
+			->build('reset_pass_complete', $this->data);
+	}
+
+	/**
+	 *
+	 */
+	public function edit($id = 0)
+	{
+		if ($this->current_user AND $this->current_user->group === 'admin' AND $id > 0)
+		{
+			$user = $this->user_m->get(array('id' => $id));
+		}
+		else
+		{
+			$user = $this->current_user or redirect('users/login/users/edit'.(($id > 0) ? '/'.$id : ''));
+		}
+
+		$this->validation_rules = array(
+			array(
+				'field' => 'first_name',
+				'label' => lang('user_first_name'),
+				'rules' => 'xss_clean|required'
+			),
+			array(
+				'field' => 'last_name',
+				'label' => lang('user_last_name'),
+				'rules' => 'xss_clean'.(Settings::get('require_lastname') ? '|required' : '')
+			),
+			array(
+				'field' => 'password',
+				'label' => lang('user_password'),
+				'rules' => 'xss_clean|min_length[6]|max_length[20]'
+			),
+			array(
+				'field' => 'email',
+				'label' => lang('user_email'),
+				'rules' => 'xss_clean|valid_email'
+			),
+			array(
+				'field' => 'lang',
+				'label' => lang('user_lang'),
+				'rules' => 'xss_clean|alpha|max_length[2]'
+			),
+			array(
+				'field' => 'display_name',
+				'label' => lang('profile_display'),
+				'rules' => 'xss_clean|trim|required'
+			),
+			// More fields
+			array(
+				'field' => 'gender',
+				'label' => lang('profile_gender'),
+				'rules' => 'xss_clean|trim|max_length[1]'
+			),
+			array(
+				'field' => 'dob_day',
+				'label' => lang('profile_dob_day'),
+				'rules' => 'xss_clean|trim|numeric|max_length[2]|required'
+			),
+			array(
+				'field' => 'dob_month',
+				'label' => lang('profile_dob_month'),
+				'rules' => 'xss_clean|trim|numeric|max_length[2]|required'
+			),
+			array(
+				'field' => 'dob_year',
+				'label' => lang('profile_dob_year'),
+				'rules' => 'xss_clean|trim|numeric|max_length[4]|required'
+			),
+			array(
+				'field' => 'bio',
+				'label' => lang('profile_bio'),
+				'rules' => 'xss_clean|trim|max_length[1000]'
+			),
+			array(
+				'field' => 'phone',
+				'label' => lang('profile_phone'),
+				'rules' => 'xss_clean|trim|alpha_numeric|max_length[20]'
+			),
+			array(
+				'field' => 'mobile',
+				'label' => lang('profile_mobile'),
+				'rules' => 'xss_clean|trim|alpha_numeric|max_length[20]'
+			),
+			array(
+				'field' => 'address_line1',
+				'label' => lang('profile_address_line1'),
+				'rules' => 'xss_clean|trim'
+			),
+			array(
+				'field' => 'address_line2',
+				'label' => lang('profile_address_line2'),
+				'rules' => 'xss_clean|trim'
+			),
+			array(
+				'field' => 'address_line3',
+				'label' => lang('profile_address_line3'),
+				'rules' => 'xss_clean|trim'
+			),
+			array(
+				'field' => 'postcode',
+				'label' => lang('profile_postcode'),
+				'rules' => 'xss_clean|trim|max_length[20]'
+			),
+			array(
+				'field' => 'website',
+				'label' => lang('profile_website'),
+				'rules' => 'xss_clean|trim|max_length[255]'
+			),
+		);
+
+		// Set the validation rules
+		$this->form_validation->set_rules($this->validation_rules);
+
+		// Settings valid?
+		if ($this->form_validation->run())
+		{
+			// Loop through each POST item and add it to the secure_post array
+			$secure_post = $this->input->post();
+
+			// Set the full date of birth
+			$secure_post['dob'] = mktime(0, 0, 0, $secure_post['dob_month'], $secure_post['dob_day'], $secure_post['dob_year']);
+
+			// Unset the data that's no longer required
+			unset($secure_post['dob_month']);
+			unset($secure_post['dob_day']);
+			unset($secure_post['dob_year']);
+
+			// Set the language for this user
+			if ($secure_post['lang'])
+			{
+				$this->ion_auth->set_lang( $secure_post['lang'] );
+				$_SESSION['lang_code'] = $secure_post['lang'];
+			}
+			else
+			{
+				unset($secure_post['lang']);
+			}
+
+			// If password is being changed (and matches)
+			if ( ! $secure_post['password'])
+			{
+				unset($secure_post['password']);
+			}
+
+			// Set the time of update
+			$secure_post['updated_on'] = now();
+
+			if ($this->ion_auth->update_user($user->id, $secure_post) !== FALSE)
+			{
+				Events::trigger('post_user_update');
+
+				$this->session->set_flashdata('success', $this->ion_auth->messages());
+			}
+			else
+			{
+				$this->session->set_flashdata('error', $this->ion_auth->errors());
+			}
+
+			redirect('users/login/users/edit'.(($id > 0) ? '/'.$id : ''));
+		}
+		else
+		{
+			// Loop through each validation rule
+			foreach ($this->validation_rules as $rule)
+			{
+				if ($this->input->post($rule['field']) !== FALSE)
+				{
+					$user->{$rule['field']} = set_value($rule['field']);
+				}
+			}
+		}
+
+		// Take care of the {} braces in the content
+		foreach ($user as $field => $value)
+		{
+			$user->{$field} = escape_tags($value);
+		}
+		
+		// If this user already has a profile, use their data if nothing in post array
+		if ($user->dob > 0)
+		{
+		    $user->dob_day 	= date('j', $user->dob);
+		    $user->dob_month = date('n', $user->dob);
+		    $user->dob_year = date('Y', $user->dob);
+		}
+
+		// Fix the months
+		$this->lang->load('calendar');
+		
+		$month_names = array(
+			lang('cal_january'),
+			lang('cal_february'),
+			lang('cal_march'),
+			lang('cal_april'),
+			lang('cal_mayl'),
+			lang('cal_june'),
+			lang('cal_july'),
+			lang('cal_august'),
+			lang('cal_september'),
+			lang('cal_october'),
+			lang('cal_november'),
+			lang('cal_december'),
+		);
+		
+	    $days 	= array_combine($days 	= range(1, 31), $days);
+		$months = array_combine($months = range(1, 12), $month_names);
+	    $years 	= array_combine($years 	= range(date('Y'), date('Y')-120), $years);
+
+	    // Format languages for the dropdown box
+	    $languages = array();
+	    // get the languages offered on the front-end
+	    $site_public_lang = explode(',', Settings::get('site_public_lang'));
+	
+	    foreach ($this->config->item('supported_languages') as $lang_code => $lang)
+	    {
+	       // if the supported language is offered on the front-end
+	       if (in_array($lang_code, $site_public_lang))
+	       {
+          	// add it to the dropdown list
+        	   $languages[$lang_code] = $lang['name'];
+	       }
+	    }
+
+		// Render the view
+		$this->template->build('profile/edit', array(
+			'languages' => $languages,
+			'_user' => $user,
+			'days' => $days,
+			'months' => $months,
+			'years' => $years,
+		));
+	}
+
+	/**
+	 * Callback method used during login
+	 *
+	 * @param str $email The Email address
+	 * @return bool
+	 */
+	public function _check_login($email)
+	{
+		$remember = FALSE;
+		if ($this->input->post('remember') == 1)
+		{
+			$remember = TRUE;
+		}
+
+		if ($this->ion_auth->login($email, $this->input->post('password'), $remember))
+		{
+			return TRUE;
+		}
+
+		$this->form_validation->set_message('_check_login', $this->ion_auth->errors());
+		return FALSE;
+	}
+
+	/**
+	 * Username check
+	 *
+	 * @return bool
+	 * @author Ben Edmunds
+	 */
+	public function _username_check($username)
+	{
+	    if ($this->ion_auth->username_check($username))
+	    {
+	        $this->form_validation->set_message('_username_check', lang('user_error_username'));
+	        return FALSE;
+	    }
+	
+        return TRUE;
+	}
+
+	/**
+	 * Email check
+	 *
+	 * @return bool
+	 * @author Ben Edmunds
+	 */
+	public function _email_check($email)
+	{
+		if ($this->ion_auth->email_check($email))
+		{
+			$this->form_validation->set_message('_email_check', lang('user_error_email'));
+			return FALSE;
+		}
+		
+		return TRUE;
+	}
+
+}
