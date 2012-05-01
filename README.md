@@ -8,9 +8,9 @@ existing user directories and authentication with LDAP and ActiveDirectory.
 ##Install  
 The LDAP module is actually a package of code that contains  
 
-* a new admin PyroCMS module 
-* a library class
-* a core update to the PyroCMS User module \([ion_auth](http://github.com/benedmunds/CodeIgniter-Ion-Auth)\)  
+1. a new admin [PyroCMS](http://pyrocms.com) module 
+2. a library class
+3. a core update to the PyroCMS User module \([ion_auth](http://github.com/benedmunds/CodeIgniter-Ion-Auth)\)  
 
 To install the code follow the installation instructions in the [INSTALL.txt](http://github.com/appstucco/LDAP-for-PyroCMS/blob/master/INSTALL.txt) file.
   
