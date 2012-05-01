@@ -1,15 +1,13 @@
-INSTALL 
-
+#Install   
 The LDAP module is actually a package of code that contains 
 
-    1) a new admin PyroCMS module 
-    2) a library class
-    3) a core update to the PyroCMS User module
-
+1. a new admin PyroCMS module 
+2. a library class
+3. a core update to the PyroCMS User module  
+  
 To install these helpers follow the installation instructions for your particular setup:
 
-PyroCMS
-=================================
+##PyroCMS  
 1. Backup system/cms/modules/users/ 
 2. Unzip the archive to your local machine
 3. Place the directories and files into the following structure

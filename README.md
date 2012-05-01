@@ -12,7 +12,7 @@ The LDAP module is actually a package of code that contains
 2. a library class
 3. a core update to the PyroCMS User module \([ion_auth](http://github.com/benedmunds/CodeIgniter-Ion-Auth)\)  
 
-To install the code follow the installation instructions in the [INSTALL.txt](http://github.com/appstucco/LDAP-for-PyroCMS/blob/master/INSTALL.txt) file.
+To install the code follow the installation instructions in the [INSTALL.md](http://github.com/appstucco/LDAP-for-PyroCMS/blob/master/INSTALL.md) file.
   
 ##Contributions   
 Feel free to get involved by joining the dev work at [appstucco.com](http://appstucco.com) or by 
