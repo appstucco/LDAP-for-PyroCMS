@@ -5,7 +5,7 @@ sites. Now your organization can leverage the power of PyroCMS without
 worrying about creating multiple user accounts, and utilize
 existing user directories and authentication with LDAP and ActiveDirectory.
 
-###Install  
+##Install  
 The LDAP module is actually a package of code that contains  
 
 * a new admin PyroCMS module 
@@ -14,12 +14,12 @@ The LDAP module is actually a package of code that contains
 
 To install the code follow the installation instructions in the INSTALL.txt file.
   
-###Contributions   
+##Contributions   
 Feel free to get involved by joining the dev work at www.appstucco.com or by 
 contributing and forking to your heart's content on [GitHub](http://github.com/appstucco/LDAP-for-PyroCMS)
 
 
-###License  
+##License  
 Copyright (c) 2012. AppStucco, Inc.
 This code is open source and provided under the MIT License.
 See LICENSE.txt for details
