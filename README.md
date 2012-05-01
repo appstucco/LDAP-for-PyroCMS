@@ -10,16 +10,16 @@ The LDAP module is actually a package of code that contains
 
 * a new admin PyroCMS module 
 * a library class
-* a core update to the PyroCMS User module (ion_auth)  
+* a core update to the PyroCMS User module \([ion_auth](http://github.com/benedmunds/CodeIgniter-Ion-Auth)\)  
 
-To install the code follow the installation instructions in the INSTALL.txt file.
+To install the code follow the installation instructions in the [INSTALL.txt](http://github.com/appstucco/LDAP-for-PyroCMS/blob/master/INSTALL.txt) file.
   
 ##Contributions   
-Feel free to get involved by joining the dev work at www.appstucco.com or by 
-contributing and forking to your heart's content on [GitHub](http://github.com/appstucco/LDAP-for-PyroCMS)
+Feel free to get involved by joining the dev work at [appstucco.com](http://appstucco.com) or by 
+contributing and forking to your heart's content on [GitHub](http://github.com/appstucco/LDAP-for-PyroCMS).
 
 
 ##License  
-Copyright (c) 2012. AppStucco, Inc.
+Copyright (c) 2012. [AppStucco](http://appstucco.com), Inc.
 This code is open source and provided under the MIT License.
 See LICENSE.txt for details
