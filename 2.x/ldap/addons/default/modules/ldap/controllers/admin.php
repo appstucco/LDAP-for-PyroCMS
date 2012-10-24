@@ -45,8 +45,8 @@ class Admin extends Admin_Controller
 		);*/
 
 		$this->template->set_partial('shortcuts', 'admin/partials/shortcuts')
-						->append_metadata(js('admin.js', 'ldap'))
-						->append_metadata(css('admin.css', 'ldap'));
+						->append_js('module::admin.js')
+						->append_css('module::admin.css');
 	}
 
 	/**
