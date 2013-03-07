@@ -629,6 +629,11 @@ class Users extends Public_Controller
 			$user->email			= isset($user_hash['email']) ? $user_hash['email'] : '';
 		}
 		
+		if (!isset($user) || !is_object($user))
+		{
+	            $user = new stdClass;
+	        }
+		
 		// Repopulate the form
 		foreach ($validation as $rule)
 		{
